@@ -3,7 +3,8 @@ pipeline {
 
     environment {
         AWS_REGION = 'ap-south-1'            // update for your region
-    ACCOUNT_ID = '331174145079'         // update your AWS account id
+        ACCOUNT_ID = '331174145079'         // update your AWS account id
+        ECR_REPO = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ci-cd-node-app"
     }
 
     stages {
@@ -22,7 +23,9 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                bat 'docker build -t ci-cd-node-app .'
+                dir('app') {
+                    bat 'docker build -t ci-cd-node-app .'
+                }
             }
         }
 
@@ -40,12 +43,11 @@ pipeline {
 
         stage('Terraform Deploy') {
             steps {
-                dir('terraform') {
-                    bat 'terraform init'
-                    bat 'terraform apply -auto-approve'
-                }
+                bat 'terraform init'
+                bat 'terraform apply -auto-approve'
             }
         }
+
     }
 
     post {
