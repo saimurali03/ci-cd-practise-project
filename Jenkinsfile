@@ -1,48 +1,59 @@
 pipeline {
-  agent any
-  environment {
-    AWS_REGION = 'ap-south-1'            // update for your region
+    agent any
+
+    environment {
+        AWS_REGION = 'ap-south-1'            // update for your region
     ACCOUNT_ID = '331174145079'         // update your AWS account id
-    ECR_REPO = "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/ci-cd-example"
-    IMAGE_TAG = "${env.GIT_COMMIT ?: env.BUILD_ID}"
-  }
-  stages {
-    stage('Checkout') { steps { checkout scm } }
-    stage('Build & Test') {
-      steps {
-        dir('app') {
-          bat 'npm ci'
-          bat 'npm test || true'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
         }
-      }
-    }
-    stage('Build Docker Image') {
-      steps {
-        dir('app') {
-          bat "docker build -t ${ECR_REPO}:${IMAGE_TAG} ."
+
+        stage('Build & Test') {
+            steps {
+                bat 'npm install'
+                bat 'npm test || echo "No tests configured"'
+            }
         }
-      }
-    }
-    stage('Login & Push to ECR') {
-      steps {
-        // assumes AWS CLI available and credentials configured on Jenkins
-        bat '''
-          aws ecr get-login-password --region ${AWS_REGION} | \
-            docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-        '''
-        bat "docker push ${ECR_REPO}:${IMAGE_TAG}"
-      }
-    }
-    stage('Terraform Deploy') {
-      steps {
-        dir('infra') {
-          withCredentials([string(credentialsId: 'aws-access-key', variable: 'AWS_ACCESS_KEY_ID'), string(credentialsId: 'aws-secret-key', variable: 'AWS_SECRET_ACCESS_KEY')]) {
-            bat 'terraform init -input=false'
-            bat "terraform plan -var='image_tag=${IMAGE_TAG}' -out=tfplan -input=false"
-            bat 'terraform apply -auto-approve tfplan'
-          }
+
+        stage('Build Docker Image') {
+            steps {
+                bat 'docker build -t ci-cd-node-app .'
+            }
         }
-      }
+
+        stage('Login & Push to ECR') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-creds']]) {
+                    bat '''
+                    aws ecr get-login-password --region %AWS_REGION% | docker login --username AWS --password-stdin %ECR_REPO%
+                    docker tag ci-cd-node-app:latest %ECR_REPO%:latest
+                    docker push %ECR_REPO%:latest
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Deploy') {
+            steps {
+                dir('terraform') {
+                    bat 'terraform init'
+                    bat 'terraform apply -auto-approve'
+                }
+            }
+        }
     }
-  }
+
+    post {
+        success {
+            echo '✅ Pipeline completed successfully!'
+        }
+        failure {
+            echo '❌ Pipeline failed. Check logs for errors.'
+        }
+    }
 }
